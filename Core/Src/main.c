@@ -162,20 +162,55 @@ int main(void)
           uart.kalman_roll  = (float)mpu.roll_k;
           uart.kalman_pitch = (float)mpu.pitch_k;
 
-          /* Siapkan buffer string untuk masing-masing sudut */
-          char r_comp[16], p_comp[16];
-          char r_kalm[16], p_kalm[16];
-          char tx_buf[64];
+          /* Deklarasi wadah pesan MAVLink dan buffer transmisi byte */
+          mavlink_message_t msg;
+          uint8_t tx_buf[MAVLINK_MAX_PACKET_LEN];
+          uint16_t len;
 
-          format_float(r_comp, sizeof(r_comp), mpu.roll);
-          format_float(p_comp, sizeof(p_comp), mpu.pitch);
-          format_float(r_kalm, sizeof(r_kalm), (float)mpu.roll_k);
-          format_float(p_kalm, sizeof(p_kalm), (float)mpu.pitch_k);
+          /* ====================================================================
+           * 1. MEMBUNGKUS PESAN UNTUK COMPLEMENTARY FILTER
+           * ==================================================================== */
+          // Menggunakan fungsi serialisasi bawaan untuk memasukkan data sudut
+          // Complementary ke dalam struktur pesan standar ATTITUDE
+          mavlink_msg_attitude_pack(
+              1,              // System ID (ID Drone/Sistem, misal: 1)
+              200,            // Component ID (Gunakan 200 sebagai penanda sensor Complementary)
+              &msg,           // Pointer ke variabel penampung struktur pesan
+              HAL_GetTick(),  // Waktu sejak boot (milidetik)
+              mpu.roll,       // Nilai sudut Roll dari Complementary
+              mpu.pitch,      // Nilai sudut Pitch dari Complementary
+              0.0f,           // Nilai Yaw (diisi 0 jika belum ada data MPU yaw)
+              0.0f, 0.0f, 0.0f// Kecepatan sudut sumbu roll, pitch, yaw (diabaikan/diisi 0)
+          );
 
-          /* Format CSV: Roll_Comple,Pitch_Comple,Roll_Kalman,Pitch_Kalman */
-          int len = snprintf(tx_buf, sizeof(tx_buf), "%s,%s,%s,%s\r\n",
-                             r_comp, p_comp, r_kalm, p_kalm);
-          CDC_Transmit_FS((uint8_t*)tx_buf, (uint16_t)len);
+          // Konversi struktur pesan MAVLink menjadi buffer byte biner siap kirim
+          len = mavlink_msg_to_send_buffer(tx_buf, &msg);
+
+          // Kirim buffer biner tersebut via USB VCP (Blue Pill / STM32F401)
+          CDC_Transmit_FS(tx_buf, len);
+
+
+          /* ====================================================================
+           * 2. MEMBUNGKUS PESAN UNTUK KALMAN FILTER
+           * ==================================================================== */
+          // Gunakan fungsi yang sama, tetapi dengan Component ID 201
+          // dan variabel perhitungan Kalman dari dalam struct
+          mavlink_msg_attitude_pack(
+              1,              // System ID (Tetap 1 karena dari board yang sama)
+              201,            // Component ID (Gunakan 201 sebagai penanda pembanding Kalman)
+              &msg,           // Memakai ulang variabel &msg yang sama
+              HAL_GetTick(),
+              mpu.roll_k,     // Nilai sudut Roll hasil Kalman (atau mpu.KalmanAngleX)
+              mpu.pitch_k,    // Nilai sudut Pitch hasil Kalman (atau mpu.KalmanAngleY)
+              0.0f,
+              0.0f, 0.0f, 0.0f
+          );
+
+          // Konversi struktur pesan MAVLink yang kedua menjadi buffer byte biner
+          len = mavlink_msg_to_send_buffer(tx_buf, &msg);
+
+          // Kirim paket kedua menyusul di belakang paket pertama
+          CDC_Transmit_FS(tx_buf, len);
         }
 
         /* Heartbeat LED setiap 500 ms */
