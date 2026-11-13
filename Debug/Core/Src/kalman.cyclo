@@ -1,0 +1,4 @@
+../Core/Src/kalman.c:32:6:Kalman_Init	1
+../Core/Src/kalman.c:45:6:Kalman_SetAngle	1
+../Core/Src/kalman.c:50:8:Kalman_getAngle	1
+../Core/Src/kalman.c:82:6:MPU6050_Update_Kalman	9
